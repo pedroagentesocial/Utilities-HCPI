@@ -9,7 +9,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
     
     <style>
-        /* ===== UI DEss LA WEB ===== ss*/
+        /* ===== UI DESIGN ===== */
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
         body {
             display: flex;
@@ -27,32 +27,42 @@
             text-align: center;
         }
         h1 { margin-bottom: 30px; color: #0c133c; font-size: 24px; }
+        
         .form-group {
             display: flex;
-            align-items: center;
-            margin-bottom: 25px;
+            flex-direction: column;
+            align-items: flex-start;
+            margin-bottom: 20px;
         }
         label {
-            flex: 0 0 90px;
             font-weight: bold;
             color: #555;
-            text-align: left;
+            margin-bottom: 8px;
+            font-size: 14px;
         }
         input {
-            flex: 1;
+            width: 100%;
             padding: 12px 15px;
             border: 1px solid #ccc;
             border-radius: 8px;
             font-size: 16px;
+            transition: border-color 0.3s;
         }
         input:focus {
             border-color: #007BFF;
             outline: none;
         }
+        /* Resaltado para el campo de la Key */
+        #accessKey {
+            background-color: #f9faff;
+            border: 1px dashed #007BFF;
+        }
+
         .buttons {
             display: flex;
             flex-direction: column;
             gap: 12px;
+            margin-top: 10px;
         }
         button {
             width: 100%;
@@ -75,12 +85,22 @@
         button.secondary:hover {
             background: #1a2a5a;
         }
+        .footer-text {
+            margin-top: 20px;
+            font-size: 11px;
+            color: #999;
+        }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>HealthCarePI Utilities</h1>
+
+    <div class="form-group">
+        <label for="accessKey">Access Key:</label>
+        <input type="password" id="accessKey" placeholder="Enter Security Key">
+    </div>
 
     <div class="form-group">
         <label for="caseId">Case Id:</label>
@@ -91,6 +111,8 @@
         <button id="generateUW">Generar Underwriting</button>
         <button id="generatePayoff" class="secondary">Generar Payoff</button>
     </div>
+
+    <p class="footer-text">Unauthorized access is strictly prohibited.</p>
 </div>
 
 <script>
@@ -100,23 +122,34 @@ document.getElementById("generatePayoff").addEventListener("click", () => handle
 
 async function handleRequest(type) {
     const caseId = document.getElementById("caseId").value.trim();
+    const key = document.getElementById("accessKey").value.trim();
+
+    if (!key) {
+        alert("Por favor ingresa la Access Key de seguridad");
+        return;
+    }
     if (!caseId) {
         alert("Por favor ingresa un Case Id");
         return;
     }
 
-    // Seleccionamos el Webhook según el tipo
+    // URLs de Webhook incluyendo la KEY para validación en el servidor (Make.com)
     const webhookURL = type === "UW" 
-        ? `https://hook.us1.make.com/q7fpcr5vruwavuwn57mj7jcaby1qlqko?CaseID=${encodeURIComponent(caseId)}&type=${type}`
-        : `https://hook.us1.make.com/z8k2lt36e40k0h561b5ff938x0pdw5px?CaseID=${encodeURIComponent(caseId)}&type=${type}`;
+        ? `https://hook.us1.make.com/q7fpcr5vruwavuwn57mj7jcaby1qlqko?CaseID=${encodeURIComponent(caseId)}&type=${type}&key=${encodeURIComponent(key)}`
+        : `https://hook.us1.make.com/z8k2lt36e40k0h561b5ff938x0pdw5px?CaseID=${encodeURIComponent(caseId)}&type=${type}&key=${encodeURIComponent(key)}`;
 
     try {
-        console.log(`📡 Llamando a webhook ${type}...`);
+        console.log(`📡 Enviando solicitud ${type} con validación...`);
         const response = await fetch(webhookURL, { method: "POST" });
-        if (!response.ok) throw new Error("Error en el servidor");
+        
+        // Manejo de errores de autenticación desde Make
+        if (response.status === 401 || response.status === 403) {
+            throw new Error("Acceso Denegado: La Access Key es incorrecta.");
+        }
+        if (!response.ok) throw new Error("Error en el servidor de automatización.");
 
         const data = await response.json();
-        if (!data || data.error) throw new Error(data.error || "No se recibió información");
+        if (!data || data.error) throw new Error(data.error || "No se recibió información válida");
 
         generateProfessionalPDF(caseId, type, data);
         console.log("✅ PDF generado con éxito");
@@ -126,20 +159,18 @@ async function handleRequest(type) {
     }
 }
 
-/* ===== MOTOR DE GENERACIÓN DE PDF (TEXTO REAL) ===== */
+/* ===== MOTOR DE GENERACIÓN DE PDF ===== */
 function generateProfessionalPDF(caseId, type, data) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'letter');
     const margin = 15;
     const pageWidth = doc.internal.pageSize.getWidth();
-    console.log(doc.getFontList());
 
-
-    // 1. Logo y Encabezado de Empresa
+    // 1. Logo y Encabezado
     if (data.logo) {
         try {
             doc.addImage(data.logo, 'PNG', margin, 10, 65, 35);
-        } catch (e) { console.warn("No se pudo cargar el logo en el PDF"); }
+        } catch (e) { console.warn("Logo error"); }
     }
 
     doc.setFontSize(10);
@@ -149,17 +180,15 @@ function generateProfessionalPDF(caseId, type, data) {
     doc.text("orders@healthcarepi.com", pageWidth - margin, 35, { align: "right" });
     doc.text("www.healthcarepi.com", pageWidth - margin, 40, { align: "right" });
 
-    // 2. Título del Documento
+    // 2. Título
     doc.setFontSize(20);
     doc.setFont("helvetica", "bold");
     const title = type === "UW" ? "UNDERWRITING" : "PAYOFF SUMMARY";
     doc.text(title, pageWidth / 2, 55, { align: "center" });
 
-    // 3. Contenido según tipo
+    // 3. Lógica según el tipo de documento
     if (type === "Payoff") {
-        // --- SECCIÓN PAYOFF ---
         doc.setFontSize(12);
-    
         doc.setFont("helvetica", "bold");
         doc.text("Name:", margin, 75); 
         doc.setFont("helvetica", "normal");
@@ -170,8 +199,6 @@ function generateProfessionalPDF(caseId, type, data) {
         doc.setFont("helvetica", "normal");
         doc.text(`${data.patient?.dob || ""}`, margin + 15, 82);
 
-
-        // Tabla de Bills (Bordes perfectos)
         const tableRows = (data.billsHtml || []).map(b => [
             b.Date || "", 
             b.Place || "", 
@@ -184,40 +211,29 @@ function generateProfessionalPDF(caseId, type, data) {
             body: tableRows,
             theme: 'grid',
             headStyles: { fillColor: [133, 176, 240], textColor: [0, 0, 0] },
-            
-            // CONFIGURACIÓN DE COLUMNAS
             columnStyles: {
-                0: { cellWidth: 30 },  // Columna "Date": 30mm de ancho
-                1: { cellWidth: 'auto' }, // Columna "Description": toma el resto del espacio
-                2: { cellWidth: 35, halign: 'right' } // Columna "Amount": 35mm y alineada a la derecha
+                0: { cellWidth: 30 },
+                1: { cellWidth: 'auto' },
+                2: { cellWidth: 35, halign: 'right' }
             },
-
-            headStyles: { fillColor: [133, 176, 240], textColor: [0, 0, 0] },
             styles: { 
                 lineColor: [12, 19, 60], 
                 lineWidth: 0.2,
                 cellPadding: 1.5,
-                halign: 'center', // Opcional: Centra el texto dentro de las celdas
                 textColor: [0, 0, 0]
             }
         });
 
-        // Totales (Se posicionan automáticamente después de la tabla)
         const finalY = doc.lastAutoTable.finalY + 10;
-
-// Total
         doc.setFont("helvetica", "bold");
         doc.text("Total:", margin, finalY);
         doc.setFont("helvetica", "normal");
         doc.text(`$${formatMoney(data.totals?.total)}`, margin + 13, finalY);
 
-        // PIP
         doc.setFont("helvetica", "bold");
         doc.text("PIP:", margin, finalY + 7);
         doc.setFont("helvetica", "normal");
         doc.text(`$${formatMoney(data.totals?.pip)}`, margin + 10, finalY + 7);
-
-        
 
     } else {
         // --- SECCIÓN UNDERWRITING ---
@@ -226,16 +242,10 @@ function generateProfessionalPDF(caseId, type, data) {
             doc.setFontSize(14);
             doc.setFont("helvetica", "bold");
             doc.text(title, margin, currentY);
-
-            doc.setLineWidth(0.25);
-            doc.setDrawColor(200, 200, 200); // Un gris suave para que se vea profesional
-            // x1, y1, x2, y2
             doc.line(margin, currentY + 2, pageWidth - margin, currentY + 2); 
-            
             currentY += 10;
             
             doc.setFontSize(11);
-            doc.setFont("helvetica", "normal");
             items.forEach(item => {
                 doc.setFont("helvetica", "bold");
                 doc.text(`${item.label}:`, margin, currentY);
@@ -267,7 +277,6 @@ function generateProfessionalPDF(caseId, type, data) {
         ]);
     }
 
-    // 4. Descargar el archivo
     doc.save(`Client_${type}_${caseId}.pdf`);
 }
 
@@ -276,7 +285,7 @@ function formatMoney(value) {
     return parseFloat(value).toFixed(2); 
 }
 
-/* ===== PRECARGA DE CLIENT ID ===== */
+/* ===== PRECARGA DE CASE ID DESDE URL ===== */
 (function preload() {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("caseId");
