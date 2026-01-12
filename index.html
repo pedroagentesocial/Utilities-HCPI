@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HealthCarePI Utilities</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
+    <style>
+        /* ===== UI DE LA WEB ===== */
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f2f5;
+        }
+        .container {
+            background: #fff;
+            padding: 40px 50px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            width: 450px;
+            text-align: center;
+        }
+        h1 { margin-bottom: 30px; color: #0c133c; font-size: 24px; }
+        .form-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+        label {
+            flex: 0 0 90px;
+            font-weight: bold;
+            color: #555;
+            text-align: left;
+        }
+        input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        input:focus {
+            border-color: #007BFF;
+            outline: none;
+        }
+        .buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 25px;
+            background: #007BFF;
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button.secondary {
+            background: #0c133c;
+        }
+        button.secondary:hover {
+            background: #1a2a5a;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>HealthCarePI Utilities</h1>
+
+    <div class="form-group">
+        <label for="caseId">Case Id:</label>
+        <input type="text" id="caseId" placeholder="Enter Case Id">
+    </div>
+
+    <div class="buttons">
+        <button id="generateUW">Generar Underwriting</button>
+        <button id="generatePayoff" class="secondary">Generar Payoff</button>
+    </div>
+</div>
+
+<script>
+/* ===== CONFIGURACIÓN Y EVENTOS ===== */
+document.getElementById("generateUW").addEventListener("click", () => handleRequest("UW"));
+document.getElementById("generatePayoff").addEventListener("click", () => handleRequest("Payoff"));
+
+async function handleRequest(type) {
+    const caseId = document.getElementById("caseId").value.trim();
+    if (!caseId) {
+        alert("Por favor ingresa un Case Id");
+        return;
+    }
+
+    // Seleccionamos el Webhook según el tipo
+    const webhookURL = type === "UW" 
+        ? `https://hook.us1.make.com/q7fpcr5vruwavuwn57mj7jcaby1qlqko?CaseID=${encodeURIComponent(caseId)}&type=${type}`
+        : `https://hook.us1.make.com/z8k2lt36e40k0h561b5ff938x0pdw5px?CaseID=${encodeURIComponent(caseId)}&type=${type}`;
+
+    try {
+        console.log(`📡 Llamando a webhook ${type}...`);
+        const response = await fetch(webhookURL, { method: "POST" });
+        if (!response.ok) throw new Error("Error en el servidor");
+
+        const data = await response.json();
+        if (!data || data.error) throw new Error(data.error || "No se recibió información");
+
+        generateProfessionalPDF(caseId, type, data);
+        console.log("✅ PDF generado con éxito");
+    } catch (error) {
+        console.error(error);
+        alert(error.message || "Error al generar el PDF");
+    }
+}
+
+/* ===== MOTOR DE GENERACIÓN DE PDF (TEXTO REAL) ===== */
+function generateProfessionalPDF(caseId, type, data) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'mm', 'letter');
+    const margin = 15;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    console.log(doc.getFontList());
+
+
+    // 1. Logo y Encabezado de Empresa
+    if (data.logo) {
+        try {
+            doc.addImage(data.logo, 'PNG', margin, 10, 65, 35);
+        } catch (e) { console.warn("No se pudo cargar el logo en el PDF"); }
+    }
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text("1515 E Fort Union Blvd", pageWidth - margin, 25, { align: "right" });
+    doc.text("Cottonwood Heights, UT 84121", pageWidth - margin, 30, { align: "right" });
+    doc.text("orders@healthcarepi.com", pageWidth - margin, 35, { align: "right" });
+    doc.text("www.healthcarepi.com", pageWidth - margin, 40, { align: "right" });
+
+    // 2. Título del Documento
+    doc.setFontSize(20);
+    doc.setFont("helvetica", "bold");
+    const title = type === "UW" ? "UNDERWRITING" : "PAYOFF SUMMARY";
+    doc.text(title, pageWidth / 2, 55, { align: "center" });
+
+    // 3. Contenido según tipo
+    if (type === "Payoff") {
+        // --- SECCIÓN PAYOFF ---
+        doc.setFontSize(12);
+    
+        doc.setFont("helvetica", "bold");
+        doc.text("Name:", margin, 75); 
+        doc.setFont("helvetica", "normal");
+        doc.text(`${data.patient?.fullName || ""}`, margin + 15, 75);
+        
+        doc.setFont("helvetica", "bold");
+        doc.text("DOB:", margin, 82);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${data.patient?.dob || ""}`, margin + 15, 82);
+
+
+        // Tabla de Bills (Bordes perfectos)
+        const tableRows = (data.billsHtml || []).map(b => [
+            b.Date || "", 
+            b.Place || "", 
+            `$${parseFloat(b["Total Bill"] || 0).toFixed(2)}`
+        ]);
+
+        doc.autoTable({
+            startY: 90,
+            head: [['Date', 'Description', 'Amount']],
+            body: tableRows,
+            theme: 'grid',
+            headStyles: { fillColor: [133, 176, 240], textColor: [0, 0, 0] },
+            
+            // CONFIGURACIÓN DE COLUMNAS
+            columnStyles: {
+                0: { cellWidth: 30 },  // Columna "Date": 30mm de ancho
+                1: { cellWidth: 'auto' }, // Columna "Description": toma el resto del espacio
+                2: { cellWidth: 35, halign: 'right' } // Columna "Amount": 35mm y alineada a la derecha
+            },
+
+            headStyles: { fillColor: [133, 176, 240], textColor: [0, 0, 0] },
+            styles: { 
+                lineColor: [12, 19, 60], 
+                lineWidth: 0.2,
+                cellPadding: 1.5,
+                halign: 'center', // Opcional: Centra el texto dentro de las celdas
+                textColor: [0, 0, 0]
+            }
+        });
+
+        // Totales (Se posicionan automáticamente después de la tabla)
+        const finalY = doc.lastAutoTable.finalY + 10;
+
+// Total
+        doc.setFont("helvetica", "bold");
+        doc.text("Total:", margin, finalY);
+        doc.setFont("helvetica", "normal");
+        doc.text(`$${formatMoney(data.totals?.total)}`, margin + 13, finalY);
+
+        // PIP
+        doc.setFont("helvetica", "bold");
+        doc.text("PIP:", margin, finalY + 7);
+        doc.setFont("helvetica", "normal");
+        doc.text(`$${formatMoney(data.totals?.pip)}`, margin + 10, finalY + 7);
+
+        
+
+    } else {
+        // --- SECCIÓN UNDERWRITING ---
+        let currentY = 65;
+        const addSection = (title, items) => {
+            doc.setFontSize(14);
+            doc.setFont("helvetica", "bold");
+            doc.text(title, margin, currentY);
+
+            doc.setLineWidth(0.25);
+            doc.setDrawColor(200, 200, 200); // Un gris suave para que se vea profesional
+            // x1, y1, x2, y2
+            doc.line(margin, currentY + 2, pageWidth - margin, currentY + 2); 
+            
+            currentY += 10;
+            
+            doc.setFontSize(11);
+            doc.setFont("helvetica", "normal");
+            items.forEach(item => {
+                doc.setFont("helvetica", "bold");
+                doc.text(`${item.label}:`, margin, currentY);
+                doc.setFont("helvetica", "normal");
+                doc.text(`${item.value}`, margin + 45, currentY);
+                currentY += 7;
+            });
+            currentY += 5;
+        };
+
+        addSection("Patient Demographics", [
+            { label: "Full Name", value: data.patientDemographics?.fullName || "" },
+            { label: "Date of Birth", value: data.patientDemographics?.dob || "" },
+            { label: "Phone", value: data.patientDemographics?.phone || "" },
+            { label: "Address", value: data.patientDemographics?.address || "" }
+        ]);
+
+        addSection("Accident Information", [
+            { label: "Date of Loss", value: data.accidentInformation?.dateOfLoss || "" },
+            { label: "Case Type", value: data.accidentInformation?.caseType || "" },
+            { label: "Property Damage", value: data.accidentInformation?.propertyDamage || "" },
+            { label: "Police Report", value: data.accidentInformation?.policeReport || "" }
+        ]);
+
+        addSection("Insurance Information", [
+            { label: "BI Insurance", value: data.insuranceInformation?.biInsurance || "" },
+            { label: "BI Limits", value: data.insuranceInformation?.biLimits || "" },
+            { label: "UM/UIM Limits", value: data.insuranceInformation?.umUimLimits || "" }
+        ]);
+    }
+
+    // 4. Descargar el archivo
+    doc.save(`Client_${type}_${caseId}.pdf`);
+}
+
+function formatMoney(value) { 
+    if (!value) return "0.00"; 
+    return parseFloat(value).toFixed(2); 
+}
+
+/* ===== PRECARGA DE CLIENT ID ===== */
+(function preload() {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("caseId");
+    if (id) document.getElementById("caseId").value = id;
+})();
+</script>
+
+</body>
+</html>
